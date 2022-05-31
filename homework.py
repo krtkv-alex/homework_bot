@@ -1,4 +1,3 @@
-
 import logging
 import os
 import time
@@ -39,8 +38,7 @@ def send_message(bot, message):
 
 def get_api_answer(current_timestamp):
     """Делает запрос к эндпоинту API-сервиса."""
-    timestamp = current_timestamp or int(time.time())
-    params = {'from_date': timestamp}
+    params = {'from_date': current_timestamp}
     response = requests.get(
         ENDPOINT, headers=HEADERS, params=params
     )
@@ -68,11 +66,7 @@ def parse_status(homework):
 
 def check_tokens():
     """Проверяет доступность переменных окружения."""
-    return (
-        PRACTICUM_TOKEN is not None
-        and TELEGRAM_TOKEN is not None
-        and TELEGRAM_CHAT_ID is not None
-    )
+    return all([PRACTICUM_TOKEN, TELEGRAM_TOKEN, TELEGRAM_CHAT_ID])
 
 
 def main():
@@ -83,31 +77,37 @@ def main():
         format='%(asctime)s, %(levelname)s, %(message)s',
         filemode='a'
     )
+    checked_homework_status = ''
+    current_timestamp = 0
 
     bot = telegram.Bot(token=TELEGRAM_TOKEN)
     if check_tokens() is False:
         message = 'У нас проблемы с переменными в коде!'
         logging.critical(message)
-        send_message(bot, message)
         raise NameError()
 
     while True:
         try:
-            current_timestamp = int(time.time() - RETRY_TIME)
             response = get_api_answer(current_timestamp)
+            current_timestamp = response.get('current_date') - RETRY_TIME
             homework = check_response(response)[0]
-            message = parse_status(homework)
-            send_message(bot, message)
-            logging.info('Успешная отправка уведомления.')
-            time.sleep(RETRY_TIME)
+# На мой взгляд в этой проверке нет смысла. Потому что в 'current_timestamp'
+# я вычисляю время от последней проверки до нынешней. За этот период я же
+# никак не могу получить 'homework', если не изменился статус домашки.
+# Список будет пустой и я словлю IndexError, после чего следующая проверка
+# будет только через 10 минут.
+            if checked_homework_status != homework.get('homework_name'):
+                checked_homework_status = homework.get('homework_name')
+                message = parse_status(homework)
+                send_message(bot, message)
+                logging.info('Успешная отправка уведомления.')
         except IndexError:
             logging.debug('Статус домашки пока не изменился.')
-            time.sleep(RETRY_TIME)
         except Exception as error:
             message = f'Сбой в работе программы: {error}'
             logging.error(f'Сбой в работе программы: {error}')
             send_message(bot, message)
-            time.sleep(RETRY_TIME)
+        time.sleep(RETRY_TIME)
 
 
 if __name__ == '__main__':
